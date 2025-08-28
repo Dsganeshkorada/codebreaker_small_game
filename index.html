@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Code Breaker – The Array Heist</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#111733; --card:#0f1a3a; --accent:#7c9bff; --good:#36d399; --bad:#ff6b6b; --warn:#fbbf24; --text:#e6ecff;
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family:Inter,system-ui,Segoe UI,Arial,sans-serif; background:radial-gradient(1200px 800px at 70% -20%, #1c2b6a22, transparent), var(--bg); color:var(--text)}
+    header{padding:20px 16px 0; text-align:center}
+    header h1{margin:0; font-size:clamp(22px,3vw,34px); letter-spacing:.5px}
+    header p{margin:.25rem 0 1rem; opacity:.85}
+
+    .wrap{max-width:1024px; margin:0 auto; padding:16px}
+
+    .hud{display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; background:linear-gradient(180deg,#10173a,#0d1430); border:1px solid #22306a; border-radius:16px; padding:12px 14px; box-shadow:0 8px 30px #0006}
+    .hud .left, .hud .right{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+    .badge{background:#0b122d; border:1px solid #24357a; padding:6px 10px; border-radius:999px; font-size:12px}
+    .target{color:var(--accent); font-weight:600}
+    .timer{font-variant:tabular-nums; padding:6px 10px; border-radius:8px; background:#0c142f; border:1px solid #24357a}
+
+    /* Array board */
+    .board{margin:18px 0 12px; background:var(--panel); border:1px solid #1f2b5d; border-radius:18px; padding:18px; box-shadow:inset 0 0 0 1px #08102a;}
+    .cells{display:grid; grid-template-columns:repeat(10, minmax(38px, 1fr)); gap:10px}
+    .cell{position:relative; height:58px; border-radius:14px; border:1px solid #233167; background:linear-gradient(180deg,#0d1540,#0b1233); display:flex; align-items:center; justify-content:center; font-size:22px; font-weight:700; letter-spacing:.5px; box-shadow:0 10px 20px #0007; overflow:hidden}
+    .cell span{position:relative; z-index:2}
+    .cell::after{content:""; position:absolute; inset:0; background:linear-gradient(90deg, #ffffff10, transparent 30%); transform:translateX(-100%)}
+
+    /* Operation animations */
+    .shift-right{animation:shiftRight .28s ease forwards}
+    @keyframes shiftRight{from{transform:translateX(0)} to{transform:translateX(54px)}}
+    .shift-left{animation:shiftLeft .28s ease forwards}
+    @keyframes shiftLeft{from{transform:translateX(0)} to{transform:translateX(-54px)}}
+    .fade-in{animation:fadeIn .28s ease-out forwards}
+    @keyframes fadeIn{from{opacity:0; transform:scale(.9)} to{opacity:1; transform:scale(1)}}
+    .shrink-out{animation:shrink .28s ease-in forwards}
+    @keyframes shrink{from{opacity:1; transform:scale(1)} to{opacity:0; transform:scale(.6)}}
+
+    /* Search highlighting */
+    .scan{outline:2px dashed var(--warn); box-shadow:0 0 0 3px #fbbf2422 inset}
+    .match{outline:2px solid var(--good); box-shadow:0 0 0 3px #36d39922 inset}
+    .mismatch{outline:2px solid var(--bad); box-shadow:0 0 0 3px #ff6b6b22 inset}
+
+    /* Controls */
+    .controls{display:grid; grid-template-columns:1fr; gap:12px}
+    @media (min-width:800px){.controls{grid-template-columns:1.4fr .8fr}}
+    .panel{background:var(--panel); border:1px solid #1f2b5d; border-radius:16px; padding:14px}
+    .panel h3{margin:0 0 8px; font-size:16px; opacity:.9}
+
+    .row{display:flex; gap:10px; flex-wrap:wrap}
+    input[type="number"], input[type="text"], select{background:#0c1433; color:var(--text); border:1px solid #24357a; border-radius:12px; padding:10px 12px; font-size:14px; outline:none; min-width:90px}
+    input[type="text"]{min-width:220px}
+
+    button{background:linear-gradient(180deg,#203274,#1a2656); color:#eaf0ff; border:1px solid #3850a5; border-radius:12px; padding:10px 12px; font-weight:600; letter-spacing:.2px; cursor:pointer; transition:transform .06s ease, box-shadow .2s ease; box-shadow:0 6px 16px #0007}
+    button:hover{transform:translateY(-1px)}
+    button:active{transform:translateY(1px)}
+    .danger{background:linear-gradient(180deg,#64222a,#4c1a1f); border-color:#8e2d39}
+    .success{background:linear-gradient(180deg,#1f6b4f,#184d3a); border-color:#2b8b69}
+    .ghost{background:#0c1433; border-color:#2a3a7f}
+
+    .msg{min-height:28px; padding:10px 12px; border-radius:12px; background:#0c1433; border:1px solid #24357a; margin-top:10px; font-size:14px}
+
+    .levels{display:flex; gap:12px; flex-wrap:wrap; align-items:center}
+    .chip{padding:6px 10px; border-radius:999px; background:#0b122d; border:1px solid #24357a; font-size:12px}
+
+    .confetti{pointer-events:none; position:fixed; inset:0; overflow:hidden}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🧩 Code Breaker – <em>The Array Heist</em></h1>
+    <p>Practice <strong>insertion</strong>, <strong>deletion</strong>, and <strong>linear search for subarrays</strong> by cracking the pattern.</p>
+  </header>
+
+  <div class="wrap">
+    <div class="hud">
+      <div class="left">
+        <span class="badge">Array Size: <strong id="sizeLabel">10</strong></span>
+        <span class="badge">Level: <strong id="levelLabel">1</strong></span>
+        <span class="badge">Mode: <strong id="modeLabel">Normal</strong></span>
+        <span class="badge">Target <span class="target" id="targetText">[?, ?]</span></span>
+      </div>
+      <div class="right">
+        <span class="timer" id="timer">⏱ 60</span>
+        <button id="startTimer" class="ghost">Start Timer</button>
+        <button id="reset" class="danger">Reset</button>
+      </div>
+    </div>
+
+    <div class="board">
+      <div class="cells" id="cells"></div>
+    </div>
+
+    <div class="controls">
+      <div class="panel">
+        <h3>Operations</h3>
+        <div class="row">
+          <label>Index <input id="idx" type="number" min="0" max="9" placeholder="0-9"></label>
+          <label>Value <input id="val" type="number" min="0" max="9" placeholder="0-9"></label>
+          <button id="insert">Insert at Index</button>
+          <button id="delete" class="danger">Delete at Index</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <label>Pattern <input id="pat" type="text" placeholder="e.g., 2,1,4"></label>
+          <button id="search" class="success">Search for Pattern</button>
+        </div>
+        <div id="msg" class="msg">Ready.</div>
+      </div>
+
+      <div class="panel">
+        <h3>Game Settings</h3>
+        <div class="levels">
+          <label class="chip"><input type="radio" name="level" value="1" checked> Level 1 (2-digit)</label>
+          <label class="chip"><input type="radio" name="level" value="2"> Level 2 (3-digit)</label>
+          <label class="chip"><input type="radio" name="level" value="3"> Level 3 (reverse)</label>
+          <select id="mode">
+            <option value="normal" selected>Normal</option>
+            <option value="time">Time Attack (60s)</option>
+          </select>
+          <button id="newTarget" class="ghost">New Secret Pattern</button>
+        </div>
+        <p style="opacity:.8; margin-top:8px">Tip: Type pattern as comma-separated digits. Example: <code>2,1,4</code>.</p>
+      </div>
+    </div>
+  </div>
+
+  <canvas class="confetti" id="confetti"></canvas>
+
+  <script>
+  // ====== State ======
+  const SIZE = 10;
+  let arr = new Array(SIZE).fill(null);
+  let level = 1;            // 1: 2-digit, 2: 3-digit, 3: reverse
+  let mode = 'normal';      // 'normal' | 'time'
+  let target = [];          // secret pattern
+  let timerId = null; let timeLeft = 60; let startedAt = 0;
+
+  // ====== DOM ======
+  const cellsEl = document.getElementById('cells');
+  const idxEl = document.getElementById('idx');
+  const valEl = document.getElementById('val');
+  const patEl = document.getElementById('pat');
+  const msgEl = document.getElementById('msg');
+  const timerEl = document.getElementById('timer');
+  const startTimerBtn = document.getElementById('startTimer');
+  const levelLabel = document.getElementById('levelLabel');
+  const modeLabel  = document.getElementById('modeLabel');
+  const targetText = document.getElementById('targetText');
+
+  // Create cells
+  function render(){
+    cellsEl.innerHTML = '';
+    arr.forEach((v, i) => {
+      const d = document.createElement('div');
+      d.className = 'cell';
+      d.dataset.index = i;
+      d.innerHTML = `<span>${v === null ? '' : v}</span>`;
+      cellsEl.appendChild(d);
+    });
+    document.getElementById('sizeLabel').textContent = String(SIZE);
+  }
+
+  // ====== Utility ======
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  function parsePattern(text){
+    if(!text) return null;
+    const parts = text.split(',').map(s => s.trim()).filter(s => s !== '');
+    if(parts.length === 0) return null;
+    if(!parts.every(p => /^\d$/.test(p))) return null;
+    return parts.map(Number);
+  }
+
+  // WebAudio simple SFX
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  function beep(freq=600, dur=0.08, type='sine', gain=0.03){
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type; o.frequency.value = freq; g.gain.value = gain;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); setTimeout(()=>{o.stop();}, dur*1000);
+  }
+  function errorBuzz(){ beep(200, .12, 'square', .04); beep(120, .12, 'square', .03); }
+  function fanfare(){ [523,659,784,1046].forEach((f,i)=> setTimeout(()=>beep(f,.12,'triangle',.05), i*120)); }
+
+  // Confetti (tiny)
+  const confettiCanvas = document.getElementById('confetti');
+  const cfx = confettiCanvas.getContext('2d');
+  function resizeConfetti(){ confettiCanvas.width = innerWidth; confettiCanvas.height = innerHeight; }
+  resizeConfetti(); addEventListener('resize', resizeConfetti);
+  let confettiBits = [];
+  function throwConfetti(){
+    const N = 120;
+    confettiBits = [...Array(N)].map(()=>({
+      x: innerWidth/2, y: innerHeight/3, vx:(Math.random()*2-1)*5, vy: -Math.random()*6-3, a: Math.random()*Math.PI, s: 2+Math.random()*3
+    }));
+    let t=0; (function anim(){ t++; cfx.clearRect(0,0,confettiCanvas.width, confettiCanvas.height);
+      confettiBits.forEach(p=>{ p.vy += 0.15; p.x += p.vx; p.y += p.vy; p.a += 0.2; cfx.save(); cfx.translate(p.x,p.y); cfx.rotate(p.a); cfx.fillStyle = `hsl(${(p.x+p.y)%360},100%,70%)`; cfx.fillRect(-p.s,-p.s,p.s*2,p.s*2); cfx.restore(); });
+      if(t<240) requestAnimationFrame(anim); else cfx.clearRect(0,0,confettiCanvas.width, confettiCanvas.height);
+    })();
+  }
+
+  // ====== Core Ops ======
+  function setMsg(text, tone='info'){
+    msgEl.textContent = text;
+    msgEl.style.borderColor = tone==='good'? '#2b8b69' : tone==='bad'? '#8e2d39' : '#24357a';
+  }
+
+  async function animateShift(startIdx, dir){
+    // dir: 'right' for insertion shift, 'left' for deletion shift
+    const cls = dir==='right' ? 'shift-right' : 'shift-left';
+    for(let i=startIdx; i>=0 && i<SIZE; i+= (dir==='right'? -1 : 1)){
+      const cell = cellsEl.children[i];
+      if(!cell) continue; cell.classList.add(cls);
+    }
+    await sleep(280);
+    Array.from(cellsEl.children).forEach(c=>c.classList.remove('shift-right','shift-left'));
+  }
+
+  async function insertAt(index, value){
+    if(!(index>=0 && index<SIZE)){ setMsg('Index out of bounds!', 'bad'); errorBuzz(); return; }
+    if(!(value>=0 && value<=9)){ setMsg('Enter a value 0–9', 'bad'); errorBuzz(); return; }
+    // If last cell would be dropped
+    if(arr[SIZE-1] !== null){ setMsg('No space: rightmost value will be dropped.', 'warn'); }
+    await animateShift(index, 'right');
+    for(let i=SIZE-1; i>index; i--) arr[i] = arr[i-1];
+    arr[index] = value;
+    render();
+    const cell = cellsEl.children[index]; if(cell){ cell.classList.add('fade-in'); setTimeout(()=>cell.classList.remove('fade-in'), 300); }
+    setMsg(`Inserted ${value} at index ${index}!`, 'good'); beep();
+  }
+
+  async function deleteAt(index){
+    if(!(index>=0 && index<SIZE)){ setMsg('Index out of bounds!', 'bad'); errorBuzz(); return; }
+    if(arr[index]===null){ setMsg('Nothing to delete at that index.', 'bad'); errorBuzz(); return; }
+    const cell = cellsEl.children[index]; if(cell){ cell.classList.add('shrink-out'); await sleep(260); }
+    for(let i=index; i<SIZE-1; i++) arr[i] = arr[i+1];
+    arr[SIZE-1] = null;
+    await animateShift(index+1, 'left');
+    render();
+    setMsg(`Deleted element at index ${index}.`, 'good'); beep(480,.06);
+  }
+
+  async function searchPattern(pattern){
+    if(!pattern || !pattern.length){ setMsg('Enter a valid pattern (e.g., 1,2,3)', 'bad'); errorBuzz(); return; }
+    const len = pattern.length;
+    // linear scan
+    for(let i=0; i<=SIZE-len; i++){
+      // highlight window
+      for(let k=0;k<len;k++) cellsEl.children[i+k].classList.add('scan');
+      setMsg(`Checking window starting at index ${i}...`);
+      await sleep(260);
+      let ok=true;
+      for(let k=0;k<len;k++){
+        const v = arr[i+k];
+        if(v !== pattern[k]){ ok=false; break; }
+      }
+      for(let k=0;k<len;k++) cellsEl.children[i+k].classList.remove('scan');
+      for(let k=0;k<len;k++) cellsEl.children[i+k].classList.add(ok? 'match' : 'mismatch');
+      await sleep(220);
+      for(let k=0;k<len;k++) cellsEl.children[i+k].classList.remove('match','mismatch');
+      if(ok){
+        setMsg(`Pattern found at index ${i}!`, 'good');
+        beep(660,.08); beep(880,.08); fanfare();
+        throwConfetti();
+        if(mode==='time' && startedAt){
+          const elapsed = Math.max(0, Math.round((performance.now()-startedAt)/1000));
+          setMsg(`You cracked the code in ${elapsed}s!`, 'good');
+        }
+        return i;
+      }
+    }
+    setMsg('Pattern not found.', 'bad'); errorBuzz();
+    return -1;
+  }
+
+  // ====== Targets & Levels ======
+  function randomPattern(len){ return Array.from({length:len}, ()=> Math.floor(Math.random()*10)); }
+  function setLevel(lv){ level = lv; document.querySelectorAll('input[name="level"]').forEach(r=>r.checked = Number(r.value)===lv); levelLabel.textContent = String(level); newSecret(); }
+  function setMode(m){ mode=m; modeLabel.textContent = (m==='time'? 'Time Attack' : 'Normal'); if(m==='time'){ timeLeft=60; timerEl.textContent = '⏱ '+timeLeft; } }
+  function newSecret(){ const len = level===1?2:3; target = randomPattern(len); targetText.textContent = '['+ (level===3? [...target].reverse() : target).join(', ') +']'; setMsg('New secret pattern generated. Try to match it!'); }
+
+  // ====== Timer ======
+  function startTimer(){ if(mode!=='time') return; if(timerId) clearInterval(timerId); timeLeft=60; timerEl.textContent='⏱ 60'; startedAt = performance.now(); timerId=setInterval(()=>{ timeLeft--; timerEl.textContent='⏱ '+timeLeft; if(timeLeft<=0){ clearInterval(timerId); timerId=null; setMsg('⏰ Time up! Try again.', 'bad'); errorBuzz(); } },1000); }
+
+  // ====== Wiring ======
+  document.getElementById('insert').addEventListener('click', ()=>{
+    const i = Number(idxEl.value); const v = Number(valEl.value);
+    insertAt(i, v);
+  });
+  document.getElementById('delete').addEventListener('click', ()=>{
+    const i = Number(idxEl.value); deleteAt(i);
+  });
+  document.getElementById('search').addEventListener('click', async ()=>{
+    const parsed = parsePattern(patEl.value);
+    if(!parsed){ setMsg('Enter a valid pattern (e.g., 1,2,3)', 'bad'); errorBuzz(); return; }
+    let query = parsed;
+    if(level===3){ query = [...parsed].reverse(); }
+    const hit = await searchPattern(query);
+    // Check success vs secret target
+    const goal = (level===3? [...target].reverse(): target).join(',');
+    if(hit>=0 && parsed.join(',')===goal){ setMsg('Level Complete! Secret pattern matched. 🎉', 'good'); }
+  });
+  document.getElementById('reset').addEventListener('click', ()=>{ arr = new Array(SIZE).fill(null); render(); setMsg('Array cleared.'); });
+  document.getElementById('newTarget').addEventListener('click', newSecret);
+  document.getElementById('mode').addEventListener('change', (e)=>{ setMode(e.target.value); });
+  startTimerBtn.addEventListener('click', startTimer);
+  document.querySelectorAll('input[name="level"]').forEach(r=> r.addEventListener('change', (e)=> setLevel(Number(e.target.value))));
+
+  // Click cells to prefill index
+  cellsEl.addEventListener('click', (e)=>{
+    const cell = e.target.closest('.cell'); if(!cell) return; idxEl.value = cell.dataset.index; cell.classList.add('scan'); setTimeout(()=>cell.classList.remove('scan'),200);
+  });
+
+  // Keyboard helpers
+  document.addEventListener('keydown', (e)=>{
+    if(e.key==='Enter') document.getElementById('search').click();
+  });
+
+  // Init
+  render(); setLevel(1); setMode('normal');
+  </script>
+</body>
+</html>
